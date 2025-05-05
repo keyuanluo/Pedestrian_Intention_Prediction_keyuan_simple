@@ -3,7 +3,7 @@ from torch import nn
 import numpy as np
 from model.model_blocks import EmbedPosEnc, AttentionBlocks, Time_att
 from model.FFN import FFN
-from model.BottleNecks_三个输入 import Bottlenecks
+from model.BottleNecks_three_input import Bottlenecks
 from einops import repeat
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

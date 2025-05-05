@@ -1,9 +1,9 @@
 import torch
 from torch import nn
 import numpy as np
-from model.model_blocks import EmbedPosEnc, AttentionBlocks, Time_att
+from model.model_blocks import EmbedPosEnc, AttentionBlocks, Time_att, TimeTransformer
 from model.FFN import FFN
-from model.BottleNecks_三个输入 import Bottlenecks
+from model.BottleNecks_three_input_multi_attention import Bottlenecks
 from einops import repeat
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -22,6 +22,8 @@ class Model(nn.Module):
         self.dropout_ffn = nn.Dropout(p=0.5)  # 用于 FFN 输出后
 
         d_model = args.d_model
+
+
         hidden_dim = args.dff
 
         modal_nums = 3
@@ -67,6 +69,7 @@ class Model(nn.Module):
         self.dense = nn.Linear(modal_nums * d_model, 4) # 全连接层
         self.bottlenecks = Bottlenecks(d_model, args) # Bottlenecks
         self.time_att = Time_att(dims=args.num_bnks) # Time_att
+        self.time_transformer = TimeTransformer(d_model=args.num_bnks, num_heads=args.time_transformer_num_heads, dropout=args.time_transformer_dropout)
         self.endp = nn.Linear(modal_nums * d_model, 4) # 全连接层
         self.relu = nn.ReLU()
         self.last = nn.Linear(args.num_bnks, 1) # 全连接层
@@ -175,7 +178,8 @@ class Model(nn.Module):
         cls_out_flatten = torch.flatten(cls_out, start_dim=1) # 展平
         end_point = self.endp(cls_out_flatten) # 全连接层预测endpoint
 
-        bnk = self.relu(self.time_att(self.bottlenecks(bbox, vel, acc))) # Bottlenecks
+        # bnk = self.relu(self.time_att(self.bottlenecks(bbox, vel, acc))) # Bottlenecks
+        bnk = self.relu(self.time_transformer(self.bottlenecks(bbox, vel, acc)))  # Bottlenecks
         tmp = self.last(bnk) # 全连接层预测穿越行为
         pred = self.sigmoid(tmp)
         return pred, end_point, self.sigma_cls, self.sigma_reg # 返回预测结果，endpoint预测结果，分类的sigma，回归的sigma

@@ -28,7 +28,7 @@ class PositionalEncoding(nn.Module): # 位置编码
             x: Tensor, shape [batch_size, seq_len, embedding_dim]
         """
         x = x + self.pe[:x.size(0)] # 位置编码
-        return self.dropout(x) 
+        return self.dropout(x)
 
 
 class EmbedPosEnc(nn.Module):
@@ -55,7 +55,7 @@ class AttentionBlocks(nn.Module):
         super(AttentionBlocks, self).__init__()
 
         self.att = nn.MultiheadAttention(d_model, num_heads=num_heads, batch_first=True) # 多头注意力
-        self.drop = nn.Dropout(rate) 
+        self.drop = nn.Dropout(rate)
         self.norm = nn.LayerNorm(d_model, eps=layer_norm_eps) # 归一化
 
     def forward(self, x, y=None):
@@ -70,11 +70,12 @@ class AttentionBlocks(nn.Module):
 
 class Time_att(nn.Module): # 在时间维度上进行注意力
     def __init__(self, dims):
+
         super(Time_att, self).__init__()
         self.linear1 = nn.Linear(dims, dims, bias=False)
         self.linear2 = nn.Linear(dims, 1, bias=False)
         self.time = nn.AdaptiveAvgPool1d(1)
-        # self.pool = AttentionPooling(d_model=dims)
+        self.att_pool = AttentionPooling(d_model=dims)
 
     def forward(self, x):
         y = self.linear1(x.contiguous())
@@ -82,6 +83,8 @@ class Time_att(nn.Module): # 在时间维度上进行注意力
         beta = F.softmax(y, dim=-1)
         c = beta * x
         return self.time(c.transpose(-1, -2)).transpose(-1, -2).contiguous().squeeze()
+
+        # return self.att_pool(c.transpose(-1, -2)).transpose(-1, -2).contiguous().squeeze()
 
 
 class TimeTransformer(nn.Module):

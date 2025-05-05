@@ -1,9 +1,9 @@
 import torch
 from torch import nn
 import numpy as np
-from model.model_blocks import EmbedPosEnc, AttentionBlocks, Time_att
+from model.model_blocks_ablation_02 import EmbedPosEnc, AttentionBlocks, Time_att
 from model.FFN import FFN
-from model.BottleNecks_三个输入 import Bottlenecks
+from model.BottleNecks_three_input_multi_attention import Bottlenecks
 from einops import repeat
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -18,8 +18,8 @@ class Model(nn.Module):
         nn.init.kaiming_normal_(self.sigma_reg, mode='fan_out')  # 初始化参数
 
         # 1) 定义 Dropout，p=0.5 只是示例，你可调成 0.2、0.3 等
-        self.dropout_att = nn.Dropout(p=0.2)  # 用于 Attention 输出后
-        self.dropout_ffn = nn.Dropout(p=0.3)  # 用于 FFN 输出后
+        self.dropout_att = nn.Dropout(p=0.5)  # 用于 Attention 输出后
+        self.dropout_ffn = nn.Dropout(p=0.5)  # 用于 FFN 输出后
 
         d_model = args.d_model
         hidden_dim = args.dff
@@ -81,7 +81,7 @@ class Model(nn.Module):
         '''
             bbox: [64, 16, 4]
             vel: [64, 16, 2]
-            acc: [64, 16, 6]
+            acc: [64, 16, 3]
         '''
         b = bbox.shape[0]
         token = repeat(self.token, '() s e -> b s e', b=b) # 重复token，使尺寸匹配

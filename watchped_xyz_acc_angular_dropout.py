@@ -1,11 +1,11 @@
-from utils._watchped_data_xyz加速度 import WATCHPED
-from utils._watchped_preprocessing_xyz加速度_01 import *
+from utils.__watchped_data_xyz_acc_angular_gyro import WATCHPED
+from utils.__watchped_preprocessing_xyz_acc_angular_gyro import *
 
 import torch
 from torch import nn
 from torch.utils.data import TensorDataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from model.main_model_xyz加速度_dropout_多头注意力_QKV_BFF import Model
+from model.main_model_xyz_acc_angular_gyro_dropout import Model
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, precision_score, recall_score, confusion_matrix
 import argparse
 
@@ -16,32 +16,29 @@ def main(args):
         seed_all(args.seed)
         data_opts = {'fstride': 1,
                     'sample_type': args.bh,  # 'beh'
-                    'subset': 'default',
+                    'subset': '删除模糊的video_87_91_99',
                     'height_rng': [0, float('inf')],
                     'squarify_ratio': 0,
                     'data_split_type': 'default',  # kfold, random, default
                     'seq_type': 'crossing',
-                    'min_track_size': 15, #defalut=15
+                    'min_track_size': 15,
                     'random_params': {'ratios': None,
                                         'val_data': True,
                                         'regen_data': False},
                     'kfold_params': {'num_folds': 5, 'fold': 1},
         }
-        tte = [30, 60] #default tte = [30, 60]
+        tte = [30, 60]
         imdb = WATCHPED(data_path=args.set_path)
         seq_train = imdb.generate_data_trajectory_sequence('train', **data_opts)
         balanced_seq_train = balance_dataset(seq_train)
-        tte_seq_train, traj_seq_train = tte_dataset(balanced_seq_train, tte, 0.8, args.times_num) #default=0.6
-        print("Post-overlap train sample count (images):", len(tte_seq_train['image']))
+        tte_seq_train, traj_seq_train = tte_dataset(balanced_seq_train, tte, 0.6, args.times_num)
 
         seq_valid = imdb.generate_data_trajectory_sequence('val', **data_opts)
         balanced_seq_valid = balance_dataset(seq_valid)
-        tte_seq_valid, traj_seq_valid = tte_dataset(balanced_seq_valid, tte, 0.8, args.times_num)
-        print("Post-overlap valid sample count (images):", len(tte_seq_valid['image']))
+        tte_seq_valid, traj_seq_valid = tte_dataset(balanced_seq_valid, tte, 0, args.times_num)
 
         seq_test = imdb.generate_data_trajectory_sequence('test', **data_opts)
-        tte_seq_test, traj_seq_test = tte_dataset(seq_test, tte, 0.8, args.times_num)
-        print("Post-overlap test sample count (images):", len(tte_seq_test['image']))
+        tte_seq_test, traj_seq_test = tte_dataset(seq_test, tte, 0, args.times_num)
 
         bbox_train = tte_seq_train['bbox']
         bbox_valid = tte_seq_valid['bbox']
@@ -84,11 +81,6 @@ def main(args):
         X_test = torch.Tensor(normalized_bbox_test)
         Y_test = torch.Tensor(label_action_test)
 
-        # X_train_dec = torch.Tensor(pad_sequence(normalized_bbox_dec_train, 30))
-        # X_valid_dec = torch.Tensor(pad_sequence(normalized_bbox_dec_valid, 30))
-        # X_test_dec = torch.Tensor(pad_sequence(normalized_bbox_dec_test, 30))
-
-        ##default
         X_train_dec = torch.Tensor(pad_sequence(normalized_bbox_dec_train, 60))
         X_valid_dec = torch.Tensor(pad_sequence(normalized_bbox_dec_valid, 60))
         X_test_dec = torch.Tensor(pad_sequence(normalized_bbox_dec_test, 60))
@@ -132,8 +124,7 @@ def main(args):
     model = Model(args)
     model.to(device)
 
-    # optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.98), eps=1e-6)
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.98), eps=1e-6,weight_decay=args.weight_decay)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.98), eps=1e-6)
     cls_criterion = nn.BCELoss()
     reg_criterion = nn.MSELoss()
 
@@ -169,30 +160,34 @@ def main(args):
 if __name__ == '__main__':
     torch.cuda.empty_cache()
     parser = argparse.ArgumentParser('Pedestrain Crossing Intention Prediction.')
-    parser.add_argument('--epochs', type=int, default=5000, help='Number of epochs to train.')
+    parser.add_argument('--epochs', type=int, default=2000, help='Number of epochs to train.')
     parser.add_argument('--set_path', type=str, default='/media/robert/4TB-SSD/pkl运行')
     parser.add_argument('--bh', type=str, default='beh', help='all or beh, in JAAD dataset.')
     parser.add_argument('--balance', type=bool, default=True, help='balance or not for test dataset.')
     parser.add_argument('--seed', type=int, default=42)
+
     parser.add_argument('--d_model', type=int, default=256, help='the dimension after embedding.')
     parser.add_argument('--dff', type=int, default=512, help='the number of the units.')
     parser.add_argument('--num_heads', type=int, default=8, help='number of the heads of the multi-head model.')
     parser.add_argument('--bbox_input', type=int, default=4, help='dimension of bbox.')
     parser.add_argument('--vel_input', type=int, default=1, help='dimension of velocity.')
-    parser.add_argument('--acc_input', type=int, default=3, help='dimension of pedestrian acceleration (x,y,z).')
+
+    parser.add_argument('--acc_input', type=int, default=6, help='dimension of pedestrian acceleration (acc_x,acc_y,acc_z, gyro_x, gyro_y, gyro_z).')
+
     parser.add_argument('--time_crop', type=bool, default=False)
+
     parser.add_argument('--batch_size', type=int, default=64, help='size of batch.')
-    parser.add_argument('--lr', type=float, default=0.0001, help='learning rate to train.')
+    parser.add_argument('--lr', type=float, default=0.001, help='learning rate to train.')
+
     parser.add_argument('--num_layers', type=int, default=4, help='the number of layers.')
     parser.add_argument('--times_num', type=int, default=32, help='')
     parser.add_argument('--num_bnks', type=int, default=9, help='')
     parser.add_argument('--bnks_layers', type=int, default=9, help='')
     parser.add_argument('--sta_f', type=int, default=8)
     parser.add_argument('--end_f', type=int, default=12)
-    parser.add_argument('--learn', action='store_true',help='If set, generate random data instead of real dataset')
-    parser.add_argument('--weight_decay', type=float, default=1e-7,help='Weight decay (L2 regularization) factor.')
-    parser.add_argument('--time_transformer_num_heads', type=int, default=3, help='Number of heads for the TimeTransformer module.')
-    parser.add_argument('--time_transformer_dropout', type=float, default=0.5, help='Dropout rate for the TimeTransformer module.')
+
+    parser.add_argument('--learn', action='store_true',
+                        help='If set, generate random data instead of real dataset')
 
     args = parser.parse_args()
     main(args)

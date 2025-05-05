@@ -1,11 +1,11 @@
-from utils._watchped_data_xyz加速度 import WATCHPED
-from utils._watchped_preprocessing_xyz加速度_01 import *
+from utils._watchped_data_xyz_acc import WATCHPED
+from utils._watchped_preprocessing_xyz_acc_01 import *
 
 import torch
 from torch import nn
 from torch.utils.data import TensorDataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from model.main_model_xyz加速度_dropout_多头注意力_QKV_BFF import Model
+from model.main_model_ablation_04 import Model
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, precision_score, recall_score, confusion_matrix
 import argparse
 
@@ -21,24 +21,27 @@ def main(args):
                     'squarify_ratio': 0,
                     'data_split_type': 'default',  # kfold, random, default
                     'seq_type': 'crossing',
-                    'min_track_size': 0.01, #defalut=15
+                    'min_track_size': 15, #defalut=15
                     'random_params': {'ratios': None,
                                         'val_data': True,
                                         'regen_data': False},
                     'kfold_params': {'num_folds': 5, 'fold': 1},
         }
-        tte = [20, 50] #default tte = [30, 60]
+        tte = [30, 60] #default tte = [30, 60]
         imdb = WATCHPED(data_path=args.set_path)
         seq_train = imdb.generate_data_trajectory_sequence('train', **data_opts)
         balanced_seq_train = balance_dataset(seq_train)
         tte_seq_train, traj_seq_train = tte_dataset(balanced_seq_train, tte, 0.8, args.times_num) #default=0.6
+        print("Post-overlap train sample count (images):", len(tte_seq_train['image']))
 
         seq_valid = imdb.generate_data_trajectory_sequence('val', **data_opts)
         balanced_seq_valid = balance_dataset(seq_valid)
-        tte_seq_valid, traj_seq_valid = tte_dataset(balanced_seq_valid, tte, 0.6, args.times_num)
+        tte_seq_valid, traj_seq_valid = tte_dataset(balanced_seq_valid, tte, 0.8, args.times_num)
+        print("Post-overlap valid sample count (images):", len(tte_seq_valid['image']))
 
         seq_test = imdb.generate_data_trajectory_sequence('test', **data_opts)
-        tte_seq_test, traj_seq_test = tte_dataset(seq_test, tte, 0.6, args.times_num)
+        tte_seq_test, traj_seq_test = tte_dataset(seq_test, tte, 0.8, args.times_num)
+        print("Post-overlap test sample count (images):", len(tte_seq_test['image']))
 
         bbox_train = tte_seq_train['bbox']
         bbox_valid = tte_seq_valid['bbox']

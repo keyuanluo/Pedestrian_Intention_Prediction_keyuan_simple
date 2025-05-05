@@ -3,7 +3,7 @@ from torch import nn
 import numpy as np
 from model.model_blocks import EmbedPosEnc, AttentionBlocks, Time_att
 from model.FFN import FFN
-from model.BottleNecks_三个输入 import Bottlenecks
+from model.BottleNecks_three_input import Bottlenecks
 from einops import repeat
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -16,6 +16,10 @@ class Model(nn.Module):
         nn.init.kaiming_normal_(self.sigma_cls, mode='fan_out') # 初始化参数
         self.sigma_reg = nn.Parameter(torch.ones(1, 1, requires_grad=True, device=device), requires_grad=True) # 生成一个可训练的回归损失参数
         nn.init.kaiming_normal_(self.sigma_reg, mode='fan_out')  # 初始化参数
+
+        # 1) 定义 Dropout，p=0.5 只是示例，你可调成 0.2、0.3 等
+        self.dropout_att = nn.Dropout(p=0.5)  # 用于 Attention 输出后
+        self.dropout_ffn = nn.Dropout(p=0.5)  # 用于 FFN 输出后
 
         d_model = args.d_model
         hidden_dim = args.dff
@@ -87,40 +91,68 @@ class Model(nn.Module):
         acc = self.acc_embedding(acc, self.acc_token)
 
         bbox = self.bbox_att[0](bbox) # bbox的自注意力
+
+        # 在这里对 bbox 的输出做 dropout
+        bbox = self.dropout_att(bbox)
+
         token = torch.cat([token, bbox[:, 0:1, :]], dim=1)  # 拼接token和bbox
         vel = self.vel_att[0](vel) # vel的自注意力
+        #dropout
+        vel = self.dropout_att(vel)
+
         token = torch.cat([token, vel[:, 0:1, :]], dim=1) # 拼接token和vel
 
         # 3) acc 自注意力  # ---ADDED
         acc = self.acc_att[0](acc)
+        acc = self.dropout_att(acc) #dropout
+
         token = torch.cat([token, acc[:, 0:1, :]], dim=1)
 
         token = self.cross_att[0](token) # token的交叉注意力
+        token = self.dropout_att(token) #dropout
+
         token_new = token[:, 0:1, :] # 取出token的第一个元素
         bbox = torch.cat([token_new, bbox[:, 1:, :]], dim=1) # 拼接token_new和bbox
         vel = torch.cat([token_new, vel[:, 1:, :]], dim=1) # 拼接token_new和vel
-
         acc = torch.cat([token_new, acc[:, 1:, :]], dim=1)  # ---ADDED
 
+        # === 第 1 层 FFN === dropout
+        bbox = self.bbox_ffn[0](bbox)
+        bbox = self.dropout_ffn(bbox)
 
-        bbox = self.bbox_ffn[0](bbox) # bbox的FFN
-        vel = self.vel_ffn[0](vel) # vel的FFN
+        vel = self.bbox_ffn[0](vel)
+        vel = self.dropout_ffn(vel)
 
-        acc = self.acc_ffn[0](acc)  # ---ADDED
+        acc = self.acc_ffn[0](acc)
+        acc = self.dropout_ffn(acc)
 
-        token = self.cross_ffn[0](token)[:, 0:1, :] # token的FFN
+        token = self.cross_ffn[0](token)[:, 0:1, :]
+        token = self.dropout_ffn(token)
+
+
+        # bbox = self.bbox_ffn[0](bbox) # bbox的FFN
+        # vel = self.vel_ffn[0](vel) # vel的FFN
+        #
+        # acc = self.acc_ffn[0](acc)  # ---ADDED
+        #
+        # token = self.cross_ffn[0](token)[:, 0:1, :] # token的FFN
 
         for i in range(self.num_layers - 1):
             bbox = self.bbox_att[i + 1](bbox)
+            bbox = self.dropout_att(bbox)
             token = torch.cat([token, bbox[:, 0:1, :]], dim=1)
             vel = self.vel_att[i + 1](vel)
+            vel = self.dropout_att(vel) #dropout
             token = torch.cat([token, vel[:, 0:1, :]], dim=1)
 
             # 3) acc  # ---ADDED
             acc = self.acc_att[i + 1](acc)
+            acc = self.dropout_att(acc) #dropout
             token = torch.cat([token, acc[:, 0:1, :]], dim=1)
 
             token = self.cross_att[i + 1](token)
+            token = self.dropout_att(token) #dropout
+
             token_new = token[:, 0:1, :]
             bbox = torch.cat([token_new, bbox[:, 1:, :]], dim=1)
             vel = torch.cat([token_new, vel[:, 1:, :]], dim=1)
@@ -128,11 +160,15 @@ class Model(nn.Module):
             acc = torch.cat([token_new, acc[:, 1:, :]], dim=1)  # ---ADDED
 
             bbox = self.bbox_ffn[i + 1](bbox)
+            bbox = self.dropout_ffn(bbox)
             vel = self.vel_ffn[i + 1](vel)
+            vel = self.dropout_ffn(vel)
 
             acc = self.acc_ffn[i + 1](acc)  # ---ADDED
+            acc = self.dropout_ffn(acc)
 
             token = self.cross_ffn[i + 1](token)[:, 0:1, :]
+            token = self.dropout_ffn(token)
 
 
         cls_out = torch.cat([bbox[:, 0:1, :], vel[:, 0:1, :], acc[:, 0:1, :]], dim=1) # 拼接bbox的token和vel的token

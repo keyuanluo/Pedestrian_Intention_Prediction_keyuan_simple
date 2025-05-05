@@ -6,9 +6,9 @@ from torch import nn
 from torch.utils.data import TensorDataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-from model.main_model_xyz加速度 import Model
-from utils._watchped_data_xyz加速度 import WATCHPED
-from utils._watchped_preprocessing_xyz加速度_01_video_id import *
+from model.main_model_xyz_acc import Model
+from utils._watchped_data_xyz_acc import WATCHPED
+from utils._watchped_preprocessing_xyz_acc_01_video_id import *
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 

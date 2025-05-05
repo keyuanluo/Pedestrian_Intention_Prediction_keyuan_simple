@@ -3,7 +3,7 @@ from torch import nn
 import numpy as np
 from model.model_blocks import EmbedPosEnc, AttentionBlocks, Time_att, TimeTransformer
 from model.FFN import FFN
-from model.BottleNecks_三个输入_多头注意力 import Bottlenecks
+from model.BottleNecks_three_input_multi_attention import Bottlenecks
 from einops import repeat
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -58,10 +58,9 @@ class Model(nn.Module):
             self.bbox_ffn.append(FFN(d_model, hidden_dim)) # 添加FFN
             self.vel_att.append(AttentionBlocks(d_model, args.num_heads))
             self.vel_ffn.append(FFN(d_model, hidden_dim))
-
-            # acc
             self.acc_att.append(AttentionBlocks(d_model, args.num_heads))  # ---ADDED
             self.acc_ffn.append(FFN(d_model, hidden_dim))  # ---ADDED
+
 
             self.cross_att.append(AttentionBlocks(d_model, args.num_heads)) # 添加AttentionBlocks
             self.cross_ffn.append(FFN(d_model, hidden_dim))
@@ -93,35 +92,40 @@ class Model(nn.Module):
         vel = self.vel_embedding(vel, self.vel_token) # 张量嵌入以及生成位置编码
         acc = self.acc_embedding(acc, self.acc_token)
 
+        # 1) bbox的自注意力
         bbox = self.bbox_att[0](bbox) # bbox的自注意力
+        bbox = self.dropout_att(bbox) # 在这里对 bbox 的输出做 dropout
+        # 2) vel的自注意力
+        vel = self.vel_att[0](vel)  # vel的自注意力
+        vel = self.dropout_att(vel) # 在这里对 velocity 的输出做 dropout
+        # 3) acc 自注意力
+        acc = self.acc_att[0](acc)   # acc的自注意力
+        acc = self.dropout_att(acc)  # dropout
 
-        # 在这里对 bbox 的输出做 dropout
-        bbox = self.dropout_att(bbox)
-
-        token = torch.cat([token, bbox[:, 0:1, :]], dim=1)  # 拼接token和bbox
-        vel = self.vel_att[0](vel) # vel的自注意力
-        #dropout
-        vel = self.dropout_att(vel)
-
+        # token = torch.cat([token, bbox[:, 0:1, :]], dim=1)  # 拼接token和bbox
         token = torch.cat([token, vel[:, 0:1, :]], dim=1) # 拼接token和vel
-
-        # 3) acc 自注意力  # ---ADDED
-        acc = self.acc_att[0](acc)
-        acc = self.dropout_att(acc) #dropout
-
-        token = torch.cat([token, acc[:, 0:1, :]], dim=1)
+        token = torch.cat([token, acc[:, 0:1, :]], dim=1)  # 拼接token和acc
 
         token = self.cross_att[0](token) # token的交叉注意力
         token = self.dropout_att(token) #dropout
 
-        token_new = token[:, 0:1, :] # 取出token的第一个元素
-        bbox = torch.cat([token_new, bbox[:, 1:, :]], dim=1) # 拼接token_new和bbox
-        vel = torch.cat([token_new, vel[:, 1:, :]], dim=1) # 拼接token_new和vel
-        acc = torch.cat([token_new, acc[:, 1:, :]], dim=1)  # ---ADDED
 
-        # === 第 1 层 FFN === dropout
-        bbox = self.bbox_ffn[0](bbox)
-        bbox = self.dropout_ffn(bbox)
+        token_new_01 = token[:, 0:1, :] # 取出token的第一个元素
+        # bbox = torch.cat([token_new_01, bbox[:, 1:, :]], dim=1) # 拼接token_new和bbox
+        vel = torch.cat([token_new_01, vel[:, 1:, :]], dim=1) # 拼接token_new和vel
+        acc = torch.cat([token_new_01, acc[:, 1:, :]], dim=1)  # ---ADDED
+
+        # token = torch.cat([token, acc[:, 0:1, :]], dim=1)
+        # token = self.cross_att[0](token)  # token的交叉注意力
+        # token = self.dropout_att(token)  # dropout
+
+        # token = torch.cat([token, acc[:, 0:1, :]], dim=1)
+        # token = self.cross_att[0](token) # token的交叉注意力
+        # token = self.dropout_att(token) #dropout
+
+        # === 第 1.1 层 FFN ===
+        # bbox = self.bbox_ffn[0](bbox)
+        # bbox = self.dropout_ffn(bbox)
 
         vel = self.bbox_ffn[0](vel)
         vel = self.dropout_ffn(vel)
@@ -131,39 +135,53 @@ class Model(nn.Module):
 
         token = self.cross_ffn[0](token)[:, 0:1, :]
         token = self.dropout_ffn(token)
+        # =============第二阶段 在velocity和acc的基础上加bbox
+        # 来加一个bbox
+        token = torch.cat([token, bbox[:, 0:1, :]], dim=1)  # 拼接token和bbox
 
+        token = self.cross_att[0](token)  # token的交叉注意力
+        token = self.dropout_att(token)  # dropout
 
-        # bbox = self.bbox_ffn[0](bbox) # bbox的FFN
-        # vel = self.vel_ffn[0](vel) # vel的FFN
-        #
-        # acc = self.acc_ffn[0](acc)  # ---ADDED
-        #
-        # token = self.cross_ffn[0](token)[:, 0:1, :] # token的FFN
+        token_new_02 = token[:, 0:1, :]  # 取出token的第一个元素
+        bbox = torch.cat([token_new_02, bbox[:, 1:, :]], dim=1) # 拼接token_new和bbox
+        vel = torch.cat([token_new_02, vel[:, 1:, :]], dim=1)  # 拼接token_new和vel
+        acc = torch.cat([token_new_02, acc[:, 1:, :]], dim=1)  # ---ADDED
+
+        # === 第 1.2 层 FFN ===
+        bbox = self.bbox_ffn[0](bbox)
+        bbox = self.dropout_ffn(bbox)
+
+        vel = self.vel_ffn[0](vel)
+        vel = self.dropout_ffn(vel)
+
+        acc = self.acc_ffn[0](acc)
+        acc = self.dropout_ffn(acc)
+
+        token = self.cross_ffn[0](token)[:, 0:1, :]
+        token = self.dropout_ffn(token)
 
         for i in range(self.num_layers - 1):
             bbox = self.bbox_att[i + 1](bbox)
             bbox = self.dropout_att(bbox)
-            token = torch.cat([token, bbox[:, 0:1, :]], dim=1)
             vel = self.vel_att[i + 1](vel)
-            vel = self.dropout_att(vel) #dropout
-            token = torch.cat([token, vel[:, 0:1, :]], dim=1)
-
-            # 3) acc  # ---ADDED
+            vel = self.dropout_att(vel)  # dropout
             acc = self.acc_att[i + 1](acc)
-            acc = self.dropout_att(acc) #dropout
-            token = torch.cat([token, acc[:, 0:1, :]], dim=1)
+            acc = self.dropout_att(acc)  # dropout
 
+            # token = torch.cat([token, bbox[:, 0:1, :]], dim=1)
+            token = torch.cat([token, vel[:, 0:1, :]], dim=1)
+            token = torch.cat([token, acc[:, 0:1, :]], dim=1)
             token = self.cross_att[i + 1](token)
             token = self.dropout_att(token) #dropout
 
-            token_new = token[:, 0:1, :]
-            bbox = torch.cat([token_new, bbox[:, 1:, :]], dim=1)
-            vel = torch.cat([token_new, vel[:, 1:, :]], dim=1)
+            token_new_01 = token[:, 0:1, :]
+            # bbox = torch.cat([token_new_01, bbox[:, 1:, :]], dim=1)
+            vel = torch.cat([token_new_01, vel[:, 1:, :]], dim=1)
+            acc = torch.cat([token_new_01, acc[:, 1:, :]], dim=1)  # ---ADDED
 
-            acc = torch.cat([token_new, acc[:, 1:, :]], dim=1)  # ---ADDED
-
-            bbox = self.bbox_ffn[i + 1](bbox)
-            bbox = self.dropout_ffn(bbox)
+            # === 第 i.1 层 FFN ===
+            # bbox = self.bbox_ffn[i + 1](bbox)
+            # bbox = self.dropout_ffn(bbox)
             vel = self.vel_ffn[i + 1](vel)
             vel = self.dropout_ffn(vel)
 
@@ -172,6 +190,33 @@ class Model(nn.Module):
 
             token = self.cross_ffn[i + 1](token)[:, 0:1, :]
             token = self.dropout_ffn(token)
+
+            # =============第二阶段 在velocity和acc的基础上加bbox
+            # 来加一个bbox
+            token = torch.cat([token, bbox[:, 0:1, :]], dim=1)  # 拼接token和bbox
+
+            token = self.cross_att[i+1](token)  # token的交叉注意力
+            token = self.dropout_att(token)  # dropout
+
+            token_new_02 = token[:, 0:1, :]  # 取出token的第一个元素
+            bbox = torch.cat([token_new_02, bbox[:, 1:, :]], dim=1)  # 拼接token_new和bbox
+            vel = torch.cat([token_new_02, vel[:, 1:, :]], dim=1)  # 拼接token_new和vel
+            acc = torch.cat([token_new_02, acc[:, 1:, :]], dim=1)  # ---ADDED
+
+            # === 第 1.2 层 FFN ===
+            bbox = self.bbox_ffn[i+1](bbox)
+            bbox = self.dropout_ffn(bbox)
+
+            vel = self.vel_ffn[i+1](vel)
+            vel = self.dropout_ffn(vel)
+
+            acc = self.acc_ffn[i+1](acc)
+            acc = self.dropout_ffn(acc)
+
+            token = self.cross_ffn[i+1](token)[:, 0:1, :]
+            token = self.dropout_ffn(token)
+
+
 
 
         cls_out = torch.cat([bbox[:, 0:1, :], vel[:, 0:1, :], acc[:, 0:1, :]], dim=1) # 拼接bbox的token和vel的token

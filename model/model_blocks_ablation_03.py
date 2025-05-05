@@ -28,7 +28,7 @@ class PositionalEncoding(nn.Module): # 位置编码
             x: Tensor, shape [batch_size, seq_len, embedding_dim]
         """
         x = x + self.pe[:x.size(0)] # 位置编码
-        return self.dropout(x) 
+        return self.dropout(x)
 
 
 class EmbedPosEnc(nn.Module):
@@ -55,7 +55,7 @@ class AttentionBlocks(nn.Module):
         super(AttentionBlocks, self).__init__()
 
         self.att = nn.MultiheadAttention(d_model, num_heads=num_heads, batch_first=True) # 多头注意力
-        self.drop = nn.Dropout(rate) 
+        self.drop = nn.Dropout(rate)
         self.norm = nn.LayerNorm(d_model, eps=layer_norm_eps) # 归一化
 
     def forward(self, x, y=None):
@@ -74,7 +74,6 @@ class Time_att(nn.Module): # 在时间维度上进行注意力
         self.linear1 = nn.Linear(dims, dims, bias=False)
         self.linear2 = nn.Linear(dims, 1, bias=False)
         self.time = nn.AdaptiveAvgPool1d(1)
-        # self.pool = AttentionPooling(d_model=dims)
 
     def forward(self, x):
         y = self.linear1(x.contiguous())
@@ -126,10 +125,10 @@ class TimeTransformer(nn.Module):
         x = self.norm2(x + self.dropout(ffn_output))
 
         # # 将时序信息融合成一个全局表示（例如用平均池化）
-        # global_repr = torch.mean(x,dim=1)  # [B, d_model]
+        global_repr = torch.mean(x,dim=1)  # [B, d_model]
 
         # # 改为使用预先实例化的 self.attn_pool
-        global_repr = self.attn_pool(x)  # [B, d_model]
+        # global_repr = self.attn_pool(x)  # [B, d_model]
 
         # 改为使用预先实例化的 self.my_attn_pool
         # global_repr = self.my_attn_pool(x)  # [B, d_model]

@@ -1,11 +1,11 @@
-from utils._watchped_data_xyz加速度 import WATCHPED
-from utils._watchped_preprocessing_xyz加速度_01 import *
+from utils._watchped_data_xyz_acc import WATCHPED
+from utils._watchped_preprocessing_xyz_acc_01 import *
 
 import torch
 from torch import nn
 from torch.utils.data import TensorDataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from model.main_model_xyz加速度_dropout import Model
+from model.main_model_ablation_01 import Model
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, precision_score, recall_score, confusion_matrix
 import argparse
 
@@ -21,24 +21,27 @@ def main(args):
                     'squarify_ratio': 0,
                     'data_split_type': 'default',  # kfold, random, default
                     'seq_type': 'crossing',
-                    'min_track_size': 15,
+                    'min_track_size': 15, #defalut=15
                     'random_params': {'ratios': None,
                                         'val_data': True,
                                         'regen_data': False},
                     'kfold_params': {'num_folds': 5, 'fold': 1},
         }
-        tte = [30, 60]
+        tte = [30, 60] #default tte = [30, 60]
         imdb = WATCHPED(data_path=args.set_path)
         seq_train = imdb.generate_data_trajectory_sequence('train', **data_opts)
         balanced_seq_train = balance_dataset(seq_train)
-        tte_seq_train, traj_seq_train = tte_dataset(balanced_seq_train, tte, 0.6, args.times_num)
+        tte_seq_train, traj_seq_train = tte_dataset(balanced_seq_train, tte, 0.8, args.times_num) #default=0.6
+        print("Post-overlap train sample count (images):", len(tte_seq_train['image']))
 
         seq_valid = imdb.generate_data_trajectory_sequence('val', **data_opts)
         balanced_seq_valid = balance_dataset(seq_valid)
-        tte_seq_valid, traj_seq_valid = tte_dataset(balanced_seq_valid, tte, 0, args.times_num)
+        tte_seq_valid, traj_seq_valid = tte_dataset(balanced_seq_valid, tte, 0.8, args.times_num)
+        print("Post-overlap valid sample count (images):", len(tte_seq_valid['image']))
 
         seq_test = imdb.generate_data_trajectory_sequence('test', **data_opts)
-        tte_seq_test, traj_seq_test = tte_dataset(seq_test, tte, 0, args.times_num)
+        tte_seq_test, traj_seq_test = tte_dataset(seq_test, tte, 0.8, args.times_num)
+        print("Post-overlap test sample count (images):", len(tte_seq_test['image']))
 
         bbox_train = tte_seq_train['bbox']
         bbox_valid = tte_seq_valid['bbox']
@@ -81,6 +84,11 @@ def main(args):
         X_test = torch.Tensor(normalized_bbox_test)
         Y_test = torch.Tensor(label_action_test)
 
+        # X_train_dec = torch.Tensor(pad_sequence(normalized_bbox_dec_train, 30))
+        # X_valid_dec = torch.Tensor(pad_sequence(normalized_bbox_dec_valid, 30))
+        # X_test_dec = torch.Tensor(pad_sequence(normalized_bbox_dec_test, 30))
+
+        ##default
         X_train_dec = torch.Tensor(pad_sequence(normalized_bbox_dec_train, 60))
         X_valid_dec = torch.Tensor(pad_sequence(normalized_bbox_dec_valid, 60))
         X_test_dec = torch.Tensor(pad_sequence(normalized_bbox_dec_test, 60))
@@ -183,6 +191,8 @@ if __name__ == '__main__':
     parser.add_argument('--end_f', type=int, default=12)
     parser.add_argument('--learn', action='store_true',help='If set, generate random data instead of real dataset')
     parser.add_argument('--weight_decay', type=float, default=1e-7,help='Weight decay (L2 regularization) factor.')
+    parser.add_argument('--time_transformer_num_heads', type=int, default=3, help='Number of heads for the TimeTransformer module.')
+    parser.add_argument('--time_transformer_dropout', type=float, default=0.5, help='Dropout rate for the TimeTransformer module.')
 
     args = parser.parse_args()
     main(args)
