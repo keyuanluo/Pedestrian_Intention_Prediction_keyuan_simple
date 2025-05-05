@@ -1,11 +1,11 @@
-from utils.watchped_data import WATCHPED
-from utils.watchped_preprocessing import *
+from utils.__watchped_data_xyz_acc_angular_gyro import WATCHPED
+from utils.__watchped_preprocessing_xyz_acc_angular_gyro import *
 
 import torch
 from torch import nn
 from torch.utils.data import TensorDataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from model.main_model import Model
+from model.unused.main_model_xyz_acc_angular_gyro_dropout import Model
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, precision_score, recall_score, confusion_matrix
 import argparse
 
@@ -56,6 +56,13 @@ def main(args):
         action_valid = tte_seq_valid['activities']
         action_test = tte_seq_test['activities']
 
+        acc_train = tte_seq_train['acc']  # 假设 watchped_data.py 中已有 'acc' 字段
+        acc_valid = tte_seq_valid['acc']
+        acc_test = tte_seq_test['acc']
+
+        acc_train = torch.Tensor(acc_train)
+        acc_valid = torch.Tensor(acc_valid)
+        acc_test = torch.Tensor(acc_test)
 
         normalized_bbox_train = normalize_bbox(bbox_train)
         normalized_bbox_valid = normalize_bbox(bbox_valid)
@@ -78,13 +85,42 @@ def main(args):
         X_valid_dec = torch.Tensor(pad_sequence(normalized_bbox_dec_valid, 60))
         X_test_dec = torch.Tensor(pad_sequence(normalized_bbox_dec_test, 60))
 
-        vel_train = torch.Tensor(vel_train)
-        vel_valid = torch.Tensor(vel_valid)
-        vel_test = torch.Tensor(vel_test)
+        # vel_train = torch.Tensor(vel_train)
+        # vel_valid = torch.Tensor(vel_valid)
+        # vel_test = torch.Tensor(vel_test)
 
-        trainset = TensorDataset(X_train, Y_train, vel_train, X_train_dec)
-        validset = TensorDataset(X_valid, Y_valid, vel_valid, X_valid_dec)
-        testset = TensorDataset(X_test, Y_test, vel_test, X_test_dec)
+        vel_train = torch.from_numpy(np.array(vel_train)).float()
+        vel_valid = torch.from_numpy(np.array(vel_valid)).float()
+        vel_test = torch.from_numpy(np.array(vel_test)).float()
+
+        vel_train_np = np.array(vel_train, dtype=np.float32)
+        vel_train_torch = torch.from_numpy(vel_train_np)
+
+        # ====== 在这里插入归一化逻辑 (Min-Max) ======
+        # 1) 仅使用训练集统计量（train_min, train_max）来归一化
+        train_min = vel_train_torch.min()
+        train_max = vel_train_torch.max()
+
+        # 避免分母为 0 的情况（如果数据中所有值都相同，会导致 max-min=0）
+        eps = 1e-8
+        range_val = train_max - train_min
+        if range_val < eps:
+            range_val = eps
+
+        vel_train = (vel_train - train_min) / range_val
+        vel_valid = (vel_valid - train_min) / range_val
+        vel_test = (vel_test - train_min) / range_val
+
+
+
+        # trainset = TensorDataset(X_train, Y_train, vel_train, X_train_dec)
+        # validset = TensorDataset(X_valid, Y_valid, vel_valid, X_valid_dec)
+        # testset = TensorDataset(X_test, Y_test, vel_test, X_test_dec)
+
+        # 修改后：增加加速度数据
+        trainset = TensorDataset(X_train, Y_train, vel_train, X_train_dec, acc_train)
+        validset = TensorDataset(X_valid, Y_valid, vel_valid, X_valid_dec, acc_valid)
+        testset = TensorDataset(X_test, Y_test, vel_test, X_test_dec, acc_test)
 
         train_loader = DataLoader(trainset, batch_size=args.batch_size, shuffle=True)
         valid_loader = DataLoader(validset, batch_size=args.batch_size, shuffle=True)
@@ -93,27 +129,32 @@ def main(args):
         train_loader = [[torch.randn(size=(args.batch_size, args.times_num, args.bbox_input)),
                          torch.randn(size=(args.batch_size, 1)),
                          torch.randn(size=(args.batch_size, args.times_num, args.vel_input)),
-                         torch.randn(size=(args.batch_size, args.times_num, args.bbox_input))]]
+                         torch.randn(size=(args.batch_size, args.times_num, args.bbox_input)),
+                         torch.randn(size=(args.batch_size, args.times_num, args.acc_input))]]
+
         valid_loader = [[torch.randn(size=(args.batch_size, args.times_num, args.bbox_input)),
                          torch.randn(size=(args.batch_size, 1)),
                          torch.randn(size=(args.batch_size, args.times_num, args.vel_input)),
-                         torch.randn(size=(args.batch_size, args.times_num, args.bbox_input))]]
+                         torch.randn(size=(args.batch_size, args.times_num, args.bbox_input)),
+                         torch.randn(size=(args.batch_size, args.times_num, args.acc_input))]]
+
         test_loader = [[torch.randn(size=(args.batch_size, args.times_num, args.bbox_input)),
                         torch.randn(size=(args.batch_size, 1)),
                         torch.randn(size=(args.batch_size, args.times_num, args.vel_input)),
-                        torch.randn(size=(args.batch_size, args.times_num, args.bbox_input))]]
+                        torch.randn(size=(args.batch_size, args.times_num, args.bbox_input)),
+                        torch.randn(size=(args.batch_size, args.times_num, args.acc_input))]]
     print('Start Training Loop... \n')
 
     model = Model(args)
     model.to(device)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.98), eps=1e-6)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.98), eps=1e-6, weight_decay=args.weight_decay)
     cls_criterion = nn.BCELoss()
     reg_criterion = nn.MSELoss()
 
     model_folder_name = args.set_path + '_' + args.bh
-    os.makedirs('checkpoints', exist_ok=True)
-    checkpoint_filepath = os.path.join('checkpoints', model_folder_name + '.pt')
+    os.makedirs('../checkpoints', exist_ok=True)
+    checkpoint_filepath = os.path.join('../checkpoints', model_folder_name + '.pt')
     # checkpoint_filepath = 'checkpoints/{}.pt'.format(model_folder_name)
     writer = SummaryWriter('logs/{}'.format(model_folder_name))
 
@@ -155,6 +196,8 @@ if __name__ == '__main__':
     parser.add_argument('--bbox_input', type=int, default=4, help='dimension of bbox.')
     parser.add_argument('--vel_input', type=int, default=1, help='dimension of velocity.')
 
+    parser.add_argument('--acc_input', type=int, default=6, help='dimension of pedestrian acceleration (acc_x,acc_y,acc_z, gyro_x, gyro_y, gyro_z).')
+
     parser.add_argument('--time_crop', type=bool, default=False)
 
     parser.add_argument('--batch_size', type=int, default=64, help='size of batch.')
@@ -169,6 +212,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--learn', action='store_true',
                         help='If set, generate random data instead of real dataset')
+    parser.add_argument('--weight_decay', type=float, default=1e-5, help='Weight decay (L2 regularization) factor.')
 
     args = parser.parse_args()
-    main(args)  
+    main(args)

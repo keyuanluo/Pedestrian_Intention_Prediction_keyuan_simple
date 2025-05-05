@@ -1,11 +1,11 @@
-from utils.__watchped_data_xyz_acc_angular_gyro import WATCHPED
-from utils.__watchped_preprocessing_xyz_acc_angular_gyro import *
+from utils._watchped_data_xyz_acc import WATCHPED
+from utils._watchped_preprocessing_xyz_acc_01 import *
 
 import torch
 from torch import nn
 from torch.utils.data import TensorDataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from model.main_model_xyz_acc_angular_gyro_dropout import Model
+from model.unused.main_model_xyz_acc_dropout_multi_head_attention import Model
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, precision_score, recall_score, confusion_matrix
 import argparse
 
@@ -85,33 +85,9 @@ def main(args):
         X_valid_dec = torch.Tensor(pad_sequence(normalized_bbox_dec_valid, 60))
         X_test_dec = torch.Tensor(pad_sequence(normalized_bbox_dec_test, 60))
 
-        # vel_train = torch.Tensor(vel_train)
-        # vel_valid = torch.Tensor(vel_valid)
-        # vel_test = torch.Tensor(vel_test)
-
-        vel_train = torch.from_numpy(np.array(vel_train)).float()
-        vel_valid = torch.from_numpy(np.array(vel_valid)).float()
-        vel_test = torch.from_numpy(np.array(vel_test)).float()
-
-        vel_train_np = np.array(vel_train, dtype=np.float32)
-        vel_train_torch = torch.from_numpy(vel_train_np)
-
-        # ====== 在这里插入归一化逻辑 (Min-Max) ======
-        # 1) 仅使用训练集统计量（train_min, train_max）来归一化
-        train_min = vel_train_torch.min()
-        train_max = vel_train_torch.max()
-
-        # 避免分母为 0 的情况（如果数据中所有值都相同，会导致 max-min=0）
-        eps = 1e-8
-        range_val = train_max - train_min
-        if range_val < eps:
-            range_val = eps
-
-        vel_train = (vel_train - train_min) / range_val
-        vel_valid = (vel_valid - train_min) / range_val
-        vel_test = (vel_test - train_min) / range_val
-
-
+        vel_train = torch.Tensor(vel_train)
+        vel_valid = torch.Tensor(vel_valid)
+        vel_test = torch.Tensor(vel_test)
 
         # trainset = TensorDataset(X_train, Y_train, vel_train, X_train_dec)
         # validset = TensorDataset(X_valid, Y_valid, vel_valid, X_valid_dec)
@@ -148,13 +124,14 @@ def main(args):
     model = Model(args)
     model.to(device)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.98), eps=1e-6, weight_decay=args.weight_decay)
+    # optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.98), eps=1e-6)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.98), eps=1e-6,weight_decay=args.weight_decay)
     cls_criterion = nn.BCELoss()
     reg_criterion = nn.MSELoss()
 
     model_folder_name = args.set_path + '_' + args.bh
-    os.makedirs('checkpoints', exist_ok=True)
-    checkpoint_filepath = os.path.join('checkpoints', model_folder_name + '.pt')
+    os.makedirs('../checkpoints', exist_ok=True)
+    checkpoint_filepath = os.path.join('../checkpoints', model_folder_name + '.pt')
     # checkpoint_filepath = 'checkpoints/{}.pt'.format(model_folder_name)
     writer = SummaryWriter('logs/{}'.format(model_folder_name))
 
@@ -184,35 +161,28 @@ def main(args):
 if __name__ == '__main__':
     torch.cuda.empty_cache()
     parser = argparse.ArgumentParser('Pedestrain Crossing Intention Prediction.')
-    parser.add_argument('--epochs', type=int, default=2000, help='Number of epochs to train.')
+    parser.add_argument('--epochs', type=int, default=5000, help='Number of epochs to train.')
     parser.add_argument('--set_path', type=str, default='/media/robert/4TB-SSD/pkl运行')
     parser.add_argument('--bh', type=str, default='beh', help='all or beh, in JAAD dataset.')
     parser.add_argument('--balance', type=bool, default=True, help='balance or not for test dataset.')
     parser.add_argument('--seed', type=int, default=42)
-
     parser.add_argument('--d_model', type=int, default=256, help='the dimension after embedding.')
     parser.add_argument('--dff', type=int, default=512, help='the number of the units.')
     parser.add_argument('--num_heads', type=int, default=8, help='number of the heads of the multi-head model.')
     parser.add_argument('--bbox_input', type=int, default=4, help='dimension of bbox.')
     parser.add_argument('--vel_input', type=int, default=1, help='dimension of velocity.')
-
-    parser.add_argument('--acc_input', type=int, default=6, help='dimension of pedestrian acceleration (acc_x,acc_y,acc_z, gyro_x, gyro_y, gyro_z).')
-
+    parser.add_argument('--acc_input', type=int, default=3, help='dimension of pedestrian acceleration (x,y,z).')
     parser.add_argument('--time_crop', type=bool, default=False)
-
     parser.add_argument('--batch_size', type=int, default=64, help='size of batch.')
-    parser.add_argument('--lr', type=float, default=0.001, help='learning rate to train.')
-
+    parser.add_argument('--lr', type=float, default=0.0001, help='learning rate to train.')
     parser.add_argument('--num_layers', type=int, default=4, help='the number of layers.')
     parser.add_argument('--times_num', type=int, default=32, help='')
     parser.add_argument('--num_bnks', type=int, default=9, help='')
     parser.add_argument('--bnks_layers', type=int, default=9, help='')
     parser.add_argument('--sta_f', type=int, default=8)
     parser.add_argument('--end_f', type=int, default=12)
-
-    parser.add_argument('--learn', action='store_true',
-                        help='If set, generate random data instead of real dataset')
-    parser.add_argument('--weight_decay', type=float, default=1e-5, help='Weight decay (L2 regularization) factor.')
+    parser.add_argument('--learn', action='store_true',help='If set, generate random data instead of real dataset')
+    parser.add_argument('--weight_decay', type=float, default=1e-7,help='Weight decay (L2 regularization) factor.')
 
     args = parser.parse_args()
     main(args)

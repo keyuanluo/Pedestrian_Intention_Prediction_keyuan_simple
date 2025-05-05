@@ -1,13 +1,13 @@
-from utils._watchped_data_xyz_acc import WATCHPED
-from utils._watchped_preprocessing_xyz_acc_01 import *
+import argparse
 
-import torch
+from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, precision_score, recall_score, confusion_matrix
 from torch import nn
 from torch.utils.data import TensorDataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from model.main_model_xyz_acc_dropout_multi_head_attention_QKV_BFF_2_CMSA import Model
-from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, precision_score, recall_score, confusion_matrix
-import argparse
+
+from model.unused.main_model_xyz_acc import Model
+from utils._watchped_data_xyz_acc import WATCHPED
+from utils.unused._watchped_preprocessing_xyz_acc_01_video_id import *
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -16,32 +16,29 @@ def main(args):
         seed_all(args.seed)
         data_opts = {'fstride': 1,
                     'sample_type': args.bh,  # 'beh'
-                    'subset': 'default',
+                    'subset': '删除模糊的video_87_91_99',
                     'height_rng': [0, float('inf')],
                     'squarify_ratio': 0,
                     'data_split_type': 'default',  # kfold, random, default
                     'seq_type': 'crossing',
-                    'min_track_size': 15, #defalut=15
+                    'min_track_size': 15,
                     'random_params': {'ratios': None,
                                         'val_data': True,
                                         'regen_data': False},
                     'kfold_params': {'num_folds': 5, 'fold': 1},
         }
-        tte = [30, 60] #default tte = [30, 60]
+        tte = [30, 60]
         imdb = WATCHPED(data_path=args.set_path)
         seq_train = imdb.generate_data_trajectory_sequence('train', **data_opts)
         balanced_seq_train = balance_dataset(seq_train)
-        tte_seq_train, traj_seq_train = tte_dataset(balanced_seq_train, tte, 0.8, args.times_num) #default=0.6
-        print("Post-overlap train sample count (images):", len(tte_seq_train['image']))
+        tte_seq_train, traj_seq_train = tte_dataset(balanced_seq_train, tte, 0.6, args.times_num)
 
         seq_valid = imdb.generate_data_trajectory_sequence('val', **data_opts)
         balanced_seq_valid = balance_dataset(seq_valid)
-        tte_seq_valid, traj_seq_valid = tte_dataset(balanced_seq_valid, tte, 0.8, args.times_num)
-        print("Post-overlap valid sample count (images):", len(tte_seq_valid['image']))
+        tte_seq_valid, traj_seq_valid = tte_dataset(balanced_seq_valid, tte, 0, args.times_num)
 
         seq_test = imdb.generate_data_trajectory_sequence('test', **data_opts)
-        tte_seq_test, traj_seq_test = tte_dataset(seq_test, tte, 0.8, args.times_num)
-        print("Post-overlap test sample count (images):", len(tte_seq_test['image']))
+        tte_seq_test, traj_seq_test = tte_dataset(seq_test, tte, 0, args.times_num)
 
         bbox_train = tte_seq_train['bbox']
         bbox_valid = tte_seq_valid['bbox']
@@ -84,14 +81,15 @@ def main(args):
         X_test = torch.Tensor(normalized_bbox_test)
         Y_test = torch.Tensor(label_action_test)
 
-        # X_train_dec = torch.Tensor(pad_sequence(normalized_bbox_dec_train, 30))
-        # X_valid_dec = torch.Tensor(pad_sequence(normalized_bbox_dec_valid, 30))
-        # X_test_dec = torch.Tensor(pad_sequence(normalized_bbox_dec_test, 30))
-
-        ##default
         X_train_dec = torch.Tensor(pad_sequence(normalized_bbox_dec_train, 60))
         X_valid_dec = torch.Tensor(pad_sequence(normalized_bbox_dec_valid, 60))
         X_test_dec = torch.Tensor(pad_sequence(normalized_bbox_dec_test, 60))
+
+        test_video_ids=[]
+        # for video_id, video_data in tte_seq_test.items():
+        #     # video_data 里可能包含 frames, bbox, vel, acc, label 等
+        #     # 你需要自己根据现有的数据结构拼出 X_test_list, Y_test_list 等
+        #     test_video_ids.append(video_id)  # 把对应的 video_id 存进去
 
         vel_train = torch.Tensor(vel_train)
         vel_valid = torch.Tensor(vel_valid)
@@ -101,10 +99,17 @@ def main(args):
         # validset = TensorDataset(X_valid, Y_valid, vel_valid, X_valid_dec)
         # testset = TensorDataset(X_test, Y_test, vel_test, X_test_dec)
 
+        test_video_ids = [int(vid) for vid in test_video_ids]
+        video_ids_test = torch.Tensor(test_video_ids)
+
+        # video_ids_test = tte_seq_test["video_i"]
+        # # video_ids_test = [item["video_id"] for item in seq_test]
+        # test_video_ids = video_ids_test  # or convert to a list
+
         # 修改后：增加加速度数据
         trainset = TensorDataset(X_train, Y_train, vel_train, X_train_dec, acc_train)
         validset = TensorDataset(X_valid, Y_valid, vel_valid, X_valid_dec, acc_valid)
-        testset = TensorDataset(X_test, Y_test, vel_test, X_test_dec, acc_test)
+        testset = TensorDataset(X_test, Y_test, vel_test, X_test_dec, acc_test, video_ids_test)
 
         train_loader = DataLoader(trainset, batch_size=args.batch_size, shuffle=True)
         valid_loader = DataLoader(validset, batch_size=args.batch_size, shuffle=True)
@@ -138,8 +143,8 @@ def main(args):
     reg_criterion = nn.MSELoss()
 
     model_folder_name = args.set_path + '_' + args.bh
-    os.makedirs('checkpoints', exist_ok=True)
-    checkpoint_filepath = os.path.join('checkpoints', model_folder_name + '.pt')
+    os.makedirs('../checkpoints', exist_ok=True)
+    checkpoint_filepath = os.path.join('../checkpoints', model_folder_name + '.pt')
     # checkpoint_filepath = 'checkpoints/{}.pt'.format(model_folder_name)
     writer = SummaryWriter('logs/{}'.format(model_folder_name))
 
@@ -149,10 +154,21 @@ def main(args):
     model = Model(args)
     model.to(device)
 
+
     checkpoint = torch.load(checkpoint_filepath)
     model.load_state_dict(checkpoint['model_state_dict'])
 
-    preds, labels = test(model, test_loader)
+    # preds, labels = test(model, test_loader)
+    ##
+    preds, labels, video_ids = test(model, test_loader)
+    preds_rounded = torch.round(preds)
+
+    incorrect_indices = (preds_rounded != labels).nonzero(as_tuple=True)[0]
+    for idx in incorrect_indices:
+        print(
+            f"预测错误: index={idx}, video_id={video_ids[idx]}, pred={preds_rounded[idx].item()}, label={labels[idx].item()}")
+
+    ##
     pred_cpu = torch.Tensor.cpu(preds)
     label_cpu = torch.Tensor.cpu(labels)
 
@@ -164,12 +180,12 @@ def main(args):
     matrix = confusion_matrix(label_cpu, np.round(pred_cpu))
 
     print(f'Acc: {acc}\n f1: {f1}\n precision_score: {pre_s}\n recall_score: {recall_s}\n roc_auc_score: {auc}\n confusion_matrix: {matrix}')
-
+    print("checkpoint = torch.load(checkpoint_filepath)")
 
 if __name__ == '__main__':
     torch.cuda.empty_cache()
     parser = argparse.ArgumentParser('Pedestrain Crossing Intention Prediction.')
-    parser.add_argument('--epochs', type=int, default=5000, help='Number of epochs to train.')
+    parser.add_argument('--epochs', type=int, default=2000, help='Number of epochs to train.')
     parser.add_argument('--set_path', type=str, default='/media/robert/4TB-SSD/pkl运行')
     parser.add_argument('--bh', type=str, default='beh', help='all or beh, in JAAD dataset.')
     parser.add_argument('--balance', type=bool, default=True, help='balance or not for test dataset.')
@@ -182,7 +198,7 @@ if __name__ == '__main__':
     parser.add_argument('--acc_input', type=int, default=3, help='dimension of pedestrian acceleration (x,y,z).')
     parser.add_argument('--time_crop', type=bool, default=False)
     parser.add_argument('--batch_size', type=int, default=64, help='size of batch.')
-    parser.add_argument('--lr', type=float, default=0.0001, help='learning rate to train.')
+    parser.add_argument('--lr', type=float, default=0.001, help='learning rate to train.')
     parser.add_argument('--num_layers', type=int, default=4, help='the number of layers.')
     parser.add_argument('--times_num', type=int, default=32, help='')
     parser.add_argument('--num_bnks', type=int, default=9, help='')
@@ -190,9 +206,7 @@ if __name__ == '__main__':
     parser.add_argument('--sta_f', type=int, default=8)
     parser.add_argument('--end_f', type=int, default=12)
     parser.add_argument('--learn', action='store_true',help='If set, generate random data instead of real dataset')
-    parser.add_argument('--weight_decay', type=float, default=1e-7,help='Weight decay (L2 regularization) factor.')
-    parser.add_argument('--time_transformer_num_heads', type=int, default=3, help='Number of heads for the TimeTransformer module.')
-    parser.add_argument('--time_transformer_dropout', type=float, default=0.5, help='Dropout rate for the TimeTransformer module.')
+    parser.add_argument('--weight_decay', type=float, default=1e-5,help='Weight decay (L2 regularization) factor.')
 
     args = parser.parse_args()
     main(args)

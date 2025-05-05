@@ -5,7 +5,7 @@ import torch
 from torch import nn
 from torch.utils.data import TensorDataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from model.main_model_xyz_acc_dropout_multi_head_attention_QKV_BFF import Model
+from model.unused.main_model_xyz_acc_dropout_multi_head_attention_QKV_BFF import Model
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, precision_score, recall_score, confusion_matrix
 import argparse
 

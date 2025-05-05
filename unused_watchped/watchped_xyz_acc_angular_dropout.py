@@ -1,14 +1,13 @@
-import argparse
+from utils.__watchped_data_xyz_acc_angular_gyro import WATCHPED
+from utils.__watchped_preprocessing_xyz_acc_angular_gyro import *
 
 import torch
-from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, precision_score, recall_score, confusion_matrix
 from torch import nn
 from torch.utils.data import TensorDataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter
-
-from model.main_model_xyz_acc import Model
-from utils._watchped_data_xyz_acc import WATCHPED
-from utils._watchped_preprocessing_xyz_acc_01_video_id import *
+from model.unused.main_model_xyz_acc_angular_gyro_dropout import Model
+from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, precision_score, recall_score, confusion_matrix
+import argparse
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -86,12 +85,6 @@ def main(args):
         X_valid_dec = torch.Tensor(pad_sequence(normalized_bbox_dec_valid, 60))
         X_test_dec = torch.Tensor(pad_sequence(normalized_bbox_dec_test, 60))
 
-        test_video_ids=[]
-        # for video_id, video_data in tte_seq_test.items():
-        #     # video_data 里可能包含 frames, bbox, vel, acc, label 等
-        #     # 你需要自己根据现有的数据结构拼出 X_test_list, Y_test_list 等
-        #     test_video_ids.append(video_id)  # 把对应的 video_id 存进去
-
         vel_train = torch.Tensor(vel_train)
         vel_valid = torch.Tensor(vel_valid)
         vel_test = torch.Tensor(vel_test)
@@ -100,17 +93,10 @@ def main(args):
         # validset = TensorDataset(X_valid, Y_valid, vel_valid, X_valid_dec)
         # testset = TensorDataset(X_test, Y_test, vel_test, X_test_dec)
 
-        test_video_ids = [int(vid) for vid in test_video_ids]
-        video_ids_test = torch.Tensor(test_video_ids)
-
-        # video_ids_test = tte_seq_test["video_i"]
-        # # video_ids_test = [item["video_id"] for item in seq_test]
-        # test_video_ids = video_ids_test  # or convert to a list
-
         # 修改后：增加加速度数据
         trainset = TensorDataset(X_train, Y_train, vel_train, X_train_dec, acc_train)
         validset = TensorDataset(X_valid, Y_valid, vel_valid, X_valid_dec, acc_valid)
-        testset = TensorDataset(X_test, Y_test, vel_test, X_test_dec, acc_test, video_ids_test)
+        testset = TensorDataset(X_test, Y_test, vel_test, X_test_dec, acc_test)
 
         train_loader = DataLoader(trainset, batch_size=args.batch_size, shuffle=True)
         valid_loader = DataLoader(validset, batch_size=args.batch_size, shuffle=True)
@@ -138,14 +124,13 @@ def main(args):
     model = Model(args)
     model.to(device)
 
-    # optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.98), eps=1e-6)
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.98), eps=1e-6,weight_decay=args.weight_decay)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.98), eps=1e-6)
     cls_criterion = nn.BCELoss()
     reg_criterion = nn.MSELoss()
 
     model_folder_name = args.set_path + '_' + args.bh
-    os.makedirs('checkpoints', exist_ok=True)
-    checkpoint_filepath = os.path.join('checkpoints', model_folder_name + '.pt')
+    os.makedirs('../checkpoints', exist_ok=True)
+    checkpoint_filepath = os.path.join('../checkpoints', model_folder_name + '.pt')
     # checkpoint_filepath = 'checkpoints/{}.pt'.format(model_folder_name)
     writer = SummaryWriter('logs/{}'.format(model_folder_name))
 
@@ -155,21 +140,10 @@ def main(args):
     model = Model(args)
     model.to(device)
 
-
     checkpoint = torch.load(checkpoint_filepath)
     model.load_state_dict(checkpoint['model_state_dict'])
 
-    # preds, labels = test(model, test_loader)
-    ##
-    preds, labels, video_ids = test(model, test_loader)
-    preds_rounded = torch.round(preds)
-
-    incorrect_indices = (preds_rounded != labels).nonzero(as_tuple=True)[0]
-    for idx in incorrect_indices:
-        print(
-            f"预测错误: index={idx}, video_id={video_ids[idx]}, pred={preds_rounded[idx].item()}, label={labels[idx].item()}")
-
-    ##
+    preds, labels = test(model, test_loader)
     pred_cpu = torch.Tensor.cpu(preds)
     label_cpu = torch.Tensor.cpu(labels)
 
@@ -181,7 +155,7 @@ def main(args):
     matrix = confusion_matrix(label_cpu, np.round(pred_cpu))
 
     print(f'Acc: {acc}\n f1: {f1}\n precision_score: {pre_s}\n recall_score: {recall_s}\n roc_auc_score: {auc}\n confusion_matrix: {matrix}')
-    print("checkpoint = torch.load(checkpoint_filepath)")
+
 
 if __name__ == '__main__':
     torch.cuda.empty_cache()
@@ -191,23 +165,29 @@ if __name__ == '__main__':
     parser.add_argument('--bh', type=str, default='beh', help='all or beh, in JAAD dataset.')
     parser.add_argument('--balance', type=bool, default=True, help='balance or not for test dataset.')
     parser.add_argument('--seed', type=int, default=42)
+
     parser.add_argument('--d_model', type=int, default=256, help='the dimension after embedding.')
     parser.add_argument('--dff', type=int, default=512, help='the number of the units.')
     parser.add_argument('--num_heads', type=int, default=8, help='number of the heads of the multi-head model.')
     parser.add_argument('--bbox_input', type=int, default=4, help='dimension of bbox.')
     parser.add_argument('--vel_input', type=int, default=1, help='dimension of velocity.')
-    parser.add_argument('--acc_input', type=int, default=3, help='dimension of pedestrian acceleration (x,y,z).')
+
+    parser.add_argument('--acc_input', type=int, default=6, help='dimension of pedestrian acceleration (acc_x,acc_y,acc_z, gyro_x, gyro_y, gyro_z).')
+
     parser.add_argument('--time_crop', type=bool, default=False)
+
     parser.add_argument('--batch_size', type=int, default=64, help='size of batch.')
     parser.add_argument('--lr', type=float, default=0.001, help='learning rate to train.')
+
     parser.add_argument('--num_layers', type=int, default=4, help='the number of layers.')
     parser.add_argument('--times_num', type=int, default=32, help='')
     parser.add_argument('--num_bnks', type=int, default=9, help='')
     parser.add_argument('--bnks_layers', type=int, default=9, help='')
     parser.add_argument('--sta_f', type=int, default=8)
     parser.add_argument('--end_f', type=int, default=12)
-    parser.add_argument('--learn', action='store_true',help='If set, generate random data instead of real dataset')
-    parser.add_argument('--weight_decay', type=float, default=1e-5,help='Weight decay (L2 regularization) factor.')
+
+    parser.add_argument('--learn', action='store_true',
+                        help='If set, generate random data instead of real dataset')
 
     args = parser.parse_args()
     main(args)

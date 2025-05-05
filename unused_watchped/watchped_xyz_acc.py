@@ -5,7 +5,7 @@ import torch
 from torch import nn
 from torch.utils.data import TensorDataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from model.main_model_xyz_acc import Model
+from model.unused.main_model_xyz_acc import Model
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, precision_score, recall_score, confusion_matrix
 import argparse
 
@@ -130,8 +130,8 @@ def main(args):
     reg_criterion = nn.MSELoss()
 
     model_folder_name = args.set_path + '_' + args.bh
-    os.makedirs('checkpoints', exist_ok=True)
-    checkpoint_filepath = os.path.join('checkpoints', model_folder_name + '.pt')
+    os.makedirs('../checkpoints', exist_ok=True)
+    checkpoint_filepath = os.path.join('../checkpoints', model_folder_name + '.pt')
     # checkpoint_filepath = 'checkpoints/{}.pt'.format(model_folder_name)
     writer = SummaryWriter('logs/{}'.format(model_folder_name))
 
