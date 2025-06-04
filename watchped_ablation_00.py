@@ -185,7 +185,7 @@ if __name__ == '__main__':
     parser.add_argument('--lr', type=float, default=0.0001, help='learning rate to train.')
     parser.add_argument('--num_layers', type=int, default=4, help='the number of layers.')
     parser.add_argument('--times_num', type=int, default=32, help='')
-    parser.add_argument('--num_bnks', type=int, default=9, help='')
+    parser.add_argument('--num_bnks', type=int, default=9, help='# 瓶颈结构的单元数目,维度dc')
     parser.add_argument('--bnks_layers', type=int, default=9, help='Number of layers in the bottleneck module')
     parser.add_argument('--sta_f', type=int, default=8)
     parser.add_argument('--end_f', type=int, default=12)
